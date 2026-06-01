@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>聊天室</title>
+    <style>
+        /* 全局重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, "PingFang SC", sans-serif;
+            background: #f0f2f5;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 聊天容器 */
+        .chat-container {
+            width: 600px;
+            height: 80vh;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 顶部:标题栏 */
+        .chat-header {
+            padding: 16px;
+            background: #4a90e2;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-header h2 {
+            font-size: 16px;
+        }
+
+        .online-count {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* 中部:消息区 */
+        .chat-messages {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 12px;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            word-wrap: break-word;
+        }
+
+        /* 底部:输入区 */
+        .chat-input {
+            display: flex;
+            padding: 12px;
+            border-top: 1px solid #eee;
+            gap: 8px;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .chat-input input:focus {
+            border-color: #4a90e2;
+        }
+
+        .chat-input button {
+            padding: 8px 20px;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .chat-input button:hover {
+            background: #3a7fc2;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- 顶部:标题 + 在线人数 -->
+        <div class="chat-header">
+            <h2>聊天室</h2>
+            <span class="online-count">在线: <span id="onlineCount">0</span></span>
+        </div>
+
+        <!-- 中部:消息显示区 -->
+        <div class="chat-messages" id="messages">
+            <!-- 消息会被 JS 动态添加到这里 -->
+        </div>
+
+        <!-- 底部:输入区 -->
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="输入消息...">
+            <button id="sendBtn">发送</button>
+        </div>
+    </div>
+
+    <script>
+
+        //拿到页面要操作的元素
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // 建立 WebSocket 连接
+        const ws = new WebSocket('ws://localhost:8080/chat');
+
+        ws.onopen = () => {
+            console.log('✅ WebSocket 连接成功');
+        };
+
+        ws.onclose = () => {
+            console.log('❌ WebSocket 连接已关闭');
+        };
+
+        ws.onerror = (error) => {
+            console.error('⚠️ WebSocket 出错:', error);
+        };
+
+        //收到消息时，内容显示在消息区
+        ws.onmessage = (event) => {
+            const messageText = event.data;
+
+            //创建消息 div
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message';
+            msgDiv.textContent = messageText;
+
+            //加到消息区
+            messagesDiv.appendChild(msgDiv);
+
+            //自动回滚到底部，让最新消息可见
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        };
+
+        //发送消息
+        function sendMessage(){
+            const text = messageInput.value.trim();
+
+            //空消息不发
+            if (text === ''){
+                return;
+            }
+
+            //发给服务器
+            ws.send(text);
+
+            //清空输入框
+            messageInput.value = '';
+        }
+
+        sendBtn.addEventListener("click", sendMessage);
+
+        //直接回车也能发送消息
+        messageInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter'){
+                sendMessage();
+            }
+        });
+
+    </script>
+</body>
+</html>
