@@ -60,12 +60,33 @@
         }
 
         .message {
-            margin-bottom: 12px;
             padding: 8px 12px;
             background: white;
             border-radius: 6px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
             word-wrap: break-word;
+            display: inline-block;
+        }
+
+        .message-wrapper {
+            margin-bottom: 12px;
+        }
+
+        .sender {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+            padding-left: 4px;
+        }
+
+        .message.system {
+            display: block;
+            background: transparent;
+            box-shadow: none;
+            color: #999;
+            font-size: 12px;
+            text-align: center;
+            padding: 4px;
         }
 
         /* 底部:输入区 */
@@ -102,9 +123,80 @@
         .chat-input button:hover {
             background: #3a7fc2;
         }
+
+        /* 用户名弹窗遮罩 */
+        .username-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .username-overlay.hidden {
+            display: none;
+        }
+
+        .username-card {
+            background: white;
+            padding: 32px;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            width: 320px;
+            text-align: center;
+        }
+
+        .username-card h3 {
+            margin-bottom: 16px;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .username-card input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 16px;
+        }
+
+        .username-card input:focus {
+            border-color: #4a90e2;
+        }
+
+        .username-card button {
+            width: 100%;
+            padding: 10px;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .username-card button:hover {
+            background: #3a7fc2;
+        }
     </style>
 </head>
 <body>
+    <!-- 用户名输入遮罩(打开页面时显示,确认后隐藏) -->
+    <div class="username-overlay" id="usernameOverlay">
+        <div class="username-card">
+            <h3>👋 欢迎来到聊天室</h3>
+            <input type="text" id="usernameInput" placeholder="请输入你的昵称" maxlength="20">
+            <button id="enterBtn">进入聊天室</button>
+        </div>
+    </div>
+
     <div class="chat-container">
         <!-- 顶部:标题 + 在线人数 -->
         <div class="chat-header">
@@ -131,50 +223,102 @@
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
 
-        // 建立 WebSocket 连接
-        const ws = new WebSocket('ws://localhost:8080/chat');
+        const usernameOverlay = document.getElementById('usernameOverlay');
+        const usernameInput = document.getElementById('usernameInput');
+        const enterBtn = document.getElementById('enterBtn');
 
-        ws.onopen = () => {
-            console.log('✅ WebSocket 连接成功');
-        };
+        //全局状态
+        let ws;
+        let username = '';
 
-        ws.onclose = () => {
-            console.log('❌ WebSocket 连接已关闭');
-        };
+        enterBtn.addEventListener('click', enterChat);
+        usernameInput.addEventListener('keydown', (event) => {
+           if (event.key === 'Enter') {
+               enterChat();
+           }
+        });
 
-        ws.onerror = (error) => {
-            console.error('⚠️ WebSocket 出错:', error);
-        };
-
-        //收到消息时，内容显示在消息区
-        ws.onmessage = (event) => {
-
-            let msg;
-            try {
-                msg = JSON.parse(event.data);
-            }catch (e) {
-                console.error('收到非 JSON 消息，忽略：', event.data);
+        //进入聊天室（用户名确认 -> 连 WebSocket -> 发 join）
+        function enterChat(){
+            const name = usernameInput.value.trim();
+            if(name === '') {
+                alert('请输入昵称!');
                 return;
             }
 
-            switch(msg.type){
-                case 'chat':
-                    showChatMessage(msg.content);
-                    break;
-                case 'online':
-                    updateOnlineCount(msg.count);
-                    break;
-                default:
-                    console.warn('未知消息类型：', msg.type);
-            }
-        };
+            username = name;
+
+            //隐藏遮罩，显示聊天界面
+            usernameOverlay.classList.add('hidden');
+
+            //现在才真正连接 WebSocket
+            connectWebSocket();
+        }
+
+        // 建立 WebSocket 连接
+        function connectWebSocket(){
+            ws = new WebSocket('ws://localhost:8080/chat');
+
+            ws.onopen = () => {
+                console.log('✅ WebSocket 连接成功');
+                ws.send(JSON.stringify({
+                    type: 'join',
+                    username: username
+                }));
+            };
+
+            ws.onclose = () => {
+                console.log('❌ WebSocket 连接已关闭');
+            };
+
+            ws.onerror = (error) => {
+                console.error('⚠️ WebSocket 出错:', error);
+            };
+
+            //收到消息时，内容显示在消息区
+            ws.onmessage = (event) => {
+
+                let msg;
+                try {
+                    msg = JSON.parse(event.data);
+                }catch (e) {
+                    console.error('收到非 JSON 消息，忽略：', event.data);
+                    return;
+                }
+
+                switch(msg.type){
+                    case 'chat':
+                        showChatMessage(msg.username, msg.content);
+                        break;
+                    case 'online':
+                        updateOnlineCount(msg.count);
+                        break;
+                    case 'system':
+                        showSystemMessage(msg.content);
+                        break;
+                    default:
+                        console.warn('未知消息类型：', msg.type);
+                }
+            };
+        }
 
         //显示一条聊天消息
-        function showChatMessage(content){
+        function showChatMessage(username, content){
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-wrapper';
+
+            const senderDiv = document.createElement('div');
+            senderDiv.className = 'sender';
+            senderDiv.textContent = username;
+
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message';
             msgDiv.textContent = content;
-            messagesDiv.appendChild(msgDiv);
+
+            wrapper.appendChild(senderDiv);
+            wrapper.appendChild(msgDiv);
+
+            messagesDiv.appendChild(wrapper);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
@@ -183,17 +327,25 @@
             document.getElementById('onlineCount').textContent = count;
         }
 
+        //显示一条系统消息
+        function showSystemMessage(content){
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message system';
+            msgDiv.textContent = content;
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
         //发送消息
         function sendMessage(){
             const text = messageInput.value.trim();
-
-            //空消息不发
-            if (text === ''){
-                return;
-            }
+            if (text === '') return;
 
             //发给服务器
-            ws.send(text);
+            ws.send(JSON.stringify({
+                type: 'chat',
+                content: text
+            }));
 
             //清空输入框
             messageInput.value = '';
