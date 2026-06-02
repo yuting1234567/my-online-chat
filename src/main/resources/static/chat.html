@@ -148,19 +148,40 @@
 
         //收到消息时，内容显示在消息区
         ws.onmessage = (event) => {
-            const messageText = event.data;
 
-            //创建消息 div
+            let msg;
+            try {
+                msg = JSON.parse(event.data);
+            }catch (e) {
+                console.error('收到非 JSON 消息，忽略：', event.data);
+                return;
+            }
+
+            switch(msg.type){
+                case 'chat':
+                    showChatMessage(msg.content);
+                    break;
+                case 'online':
+                    updateOnlineCount(msg.count);
+                    break;
+                default:
+                    console.warn('未知消息类型：', msg.type);
+            }
+        };
+
+        //显示一条聊天消息
+        function showChatMessage(content){
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message';
-            msgDiv.textContent = messageText;
-
-            //加到消息区
+            msgDiv.textContent = content;
             messagesDiv.appendChild(msgDiv);
-
-            //自动回滚到底部，让最新消息可见
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        };
+        }
+
+        //更新顶栏在线人数
+        function updateOnlineCount(count){
+            document.getElementById('onlineCount').textContent = count;
+        }
 
         //发送消息
         function sendMessage(){
