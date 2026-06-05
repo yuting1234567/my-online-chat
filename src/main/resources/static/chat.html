@@ -277,6 +277,7 @@
 
             //收到消息时，内容显示在消息区
             ws.onmessage = (event) => {
+                console.log('原始数据：', event.data);
 
                 let msg;
                 try {
@@ -288,13 +289,16 @@
 
                 switch(msg.type){
                     case 'chat':
-                        showChatMessage(msg.username, msg.content);
+                        showChatMessage(msg.username, msg.content, formatTimeNow());
                         break;
                     case 'online':
                         updateOnlineCount(msg.count);
                         break;
                     case 'system':
                         showSystemMessage(msg.content);
+                        break;
+                    case 'history':
+                        showHistory(msg.messages);
                         break;
                     default:
                         console.warn('未知消息类型：', msg.type);
@@ -303,13 +307,13 @@
         }
 
         //显示一条聊天消息
-        function showChatMessage(username, content){
+        function showChatMessage(username, content, time){
             const wrapper = document.createElement('div');
             wrapper.className = 'message-wrapper';
 
             const senderDiv = document.createElement('div');
             senderDiv.className = 'sender';
-            senderDiv.textContent = username;
+            senderDiv.textContent = time ? `${username} ${time}` : username;
 
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message';
@@ -336,6 +340,28 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
+        //显示历史消息
+        function showHistory(messages){
+            if(!messages || messages.length === 0) return;
+
+            //显示一个分隔提示
+            const divider = document.createElement('div');
+            divider.className = 'message system';
+            divider.textContent = '—— 以下是最近的聊天记录 ——';
+            messagesDiv.appendChild(divider);
+
+            //对每条历史记录进行渲染
+            messages.forEach(m => {
+                showChatMessage(m.username, m.content, HistoryTime(m.createdAt));
+            });
+
+            //再加一个新消息的分隔
+            const divider2 = document.createElement('div');
+            divider2.className = 'message system';
+            divider2.textContent = '—— 新消息 ——';
+            messagesDiv.appendChild(divider2);
+        }
+
         //发送消息
         function sendMessage(){
             const text = messageInput.value.trim();
@@ -359,6 +385,19 @@
                 sendMessage();
             }
         });
+
+        //当前时间格式化为HH：MM
+        function formatTimeNow(){
+            const now = new Date();
+            return now.getHours().toString().padStart(2, '0') + ':'
+                + now.getMinutes().toString().padStart(2, '0');
+        }
+
+        //历史消息时间
+        function HistoryTime(createdAt) {
+            if(!createdAt) return '';
+            return createdAt.replace('T', ' ');
+        }
 
     </script>
 </body>

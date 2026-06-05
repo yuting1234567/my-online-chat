@@ -1,21 +1,34 @@
 package com.yuting.chat.handler;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yuting.chat.entity.Message;
+import com.yuting.chat.mapper.MessageMapper;
+import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
+@Component
 public class ChatHandler extends TextWebSocketHandler {
 
     // 所有在线的 session，线程安全，适合读多写少的广播场景
-    private final Set<WebSocketSession> sessions = new CopyOnWriteArraySet<>();
+    private final Set<WebSocketSession> sessions     = new CopyOnWriteArraySet<>();
     //JSON 序列化_Jackson
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
+    //MyBatis Mapper,Spring 自动注入
+    private final MessageMapper messageMapper;
+    //构造器注入：Spring 创建 ChatHandler 时会传入 MessageMapper、objectMapper
+    public ChatHandler(MessageMapper messageMapper, ObjectMapper objectMapper) {
+        this.messageMapper = messageMapper;
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -90,6 +103,8 @@ public class ChatHandler extends TextWebSocketHandler {
         String content = username + " 加入了聊天室";
         System.out.println(content + "(session: " + session.getId() + ")");
 
+        sendHistory(session);
+
         broadcastSystemMessage(content);
     }
 
@@ -110,6 +125,20 @@ public class ChatHandler extends TextWebSocketHandler {
 
         System.out.println("收到 [" + username + "]: " + content);
 
+        //先存到数据库（持久化）
+        Message message = new Message();
+        message.setUsername(username);
+        message.setContent(content);
+        try{
+            messageMapper.insertMessage(message);
+            //插入后，message.getId()已经被 MyBatis 自动回填
+        }catch (Exception e){
+            System.out.println("消息存盘失败：" + e);
+            e.printStackTrace();
+            //注意：即使存盘失败，我们还是继续广播——保证用户体验，日志记录失败
+        }
+
+        //广播给所有人
         Map<String, Object> chatMsg = new HashMap<>();
         chatMsg.put("type", "chat");
         chatMsg.put("username", username);
@@ -159,6 +188,27 @@ public class ChatHandler extends TextWebSocketHandler {
             }catch (Exception e){
                 System.out.println("发送给 " + s.getId() + " 失败：" + e.getMessage());
             }
+        }
+    }
+
+    private void sendHistory(WebSocketSession session){
+        try{
+            //查最近 50条（数据库按 id DESC 倒序返回）
+            List<Message> recent = messageMapper.findRecent(50);
+
+            //反转（老的消息在前，新的在后），方便前端按时间顺序展示
+            Collections.reverse(recent);
+
+            Map<String, Object> historyMSg = new HashMap<>();
+            historyMSg.put("type", "history");
+            historyMSg.put("messages", recent);
+
+            //序列化为 JSON,单独发给这个 session
+            String json = objectMapper.writeValueAsString(historyMSg);
+            session.sendMessage(new TextMessage(json));
+        } catch (Exception e) {
+            System.out.println("推送历史消息失败：" + e);
+            e.printStackTrace();
         }
     }
 }
