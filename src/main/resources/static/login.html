@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>登录-聊天室</title>
+    <style>
+      body {
+        font-family: -apple-system, sans-serif;
+        background: #f5f5f5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+      }
+      .box {
+        background: white;
+        padding: 32px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        width: 320px;
+      }
+      h1 {
+        margin: 0 0 24px;
+        font-size: 22px;
+        text-align: center;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      button {
+        width: 100%;
+        padding: 10px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:hover { background: #0056b3; }
+      .error {
+        color: #c00;
+        font-size: 13px;
+        margin-bottom: 12px;
+        min-height: 18px;
+      }
+      .link {
+        text-align: center;
+        margin-top: 16px;
+        font-size: 13px;
+      }
+      .link a { color: #007bff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="box">
+      <h1>登录聊天室</h1>
+      <div class="error" id="errorMsg"></div>
+      <input type="text" id="username" placeholder="用户名" autofocus>
+      <input type="password" id="password" placeholder="密码">
+      <button id="loginBtn">登录</button>
+      <div class="link">
+        还没账号?<a href="register.html">去注册</a>
+      </div>
+    </div>
+    <script>
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const loginBtn = document.getElementById("loginBtn");
+        const errorMsg = document.getElementById('errorMsg');
+
+        //回车触发登录
+        passwordInput.addEventListener('keydown', e => {
+          if (e.key === 'Enter') doLogin();
+        });
+        loginBtn.addEventListener('click', doLogin);
+
+        async function doLogin(){
+          const username = usernameInput.value.trim();
+          const password = passwordInput.value;
+          errorMsg.textContent = '';
+
+          if (!username || !password){
+            errorMsg.textContent = '请填写用户名和密码';
+            return;
+          }
+
+          try{
+            const res = await fetch('api/login', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({username, password})
+            });
+
+            //读取响应体流，并转为 js 对象
+            const data = await res.json();
+
+            if(!res.ok){
+              errorMsg.textContent = data.error || '登录失败';
+              return;
+            }
+
+            //登录成功:存 token + 用户名，跳转
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('username', data.username);
+            window.location.href = 'chat.html';
+          }catch (err){
+            errorMsg.textContent = '网络错误，请稍后再试';
+            console.error(err);
+          }
+        }
+
+    </script>
+</body>
+</html>

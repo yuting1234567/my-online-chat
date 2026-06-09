@@ -33,8 +33,14 @@ public class ChatHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.add(session);
-        System.out.println("新连接进来：" + session.getId() + " , 当前在线：" + sessions.size());
 
+        String username = (String) session.getAttributes().get("username");
+        System.out.println("新连接进来：" + session.getId() + ", 用户：" + username + " , 当前在线：" + sessions.size());
+
+        sendHistory(session);
+
+        broadcastSystemMessage(username + " 加入了聊天室");
+        
         //广播最新在线人数给所有人
         broadcastOnlineCount();
     }
@@ -62,9 +68,6 @@ public class ChatHandler extends TextWebSocketHandler {
         }
 
         switch (type) {
-            case "join":
-                handleJoin(session, msg);
-                break;
             case "chat" :
                 handleChat(session, msg);
                 break;
@@ -86,26 +89,6 @@ public class ChatHandler extends TextWebSocketHandler {
 
         //广播最新在线人数给所有人
         broadcastOnlineCount();
-    }
-
-    /**
-     * 处理用户加入：存用户名到 session属性，广播加入提示。
-     */
-    private void handleJoin(WebSocketSession session, Map<String, Object> msg) {
-        String username = (String) msg.get("username");
-        if(username == null || username.isBlank()) {
-            System.out.println("join 消息缺少有效 username,忽略");
-            return;
-        }
-
-        //把用户名挂在 session 上，下次前端不用传，后端从 session 取
-        session.getAttributes().put("username", username);
-        String content = username + " 加入了聊天室";
-        System.out.println(content + "(session: " + session.getId() + ")");
-
-        sendHistory(session);
-
-        broadcastSystemMessage(content);
     }
 
     /**
