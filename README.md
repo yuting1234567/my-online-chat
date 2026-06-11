@@ -68,10 +68,10 @@ sequenceDiagram
     participant B as 浏览器
     participant S as 服务器
 
-    B->>S: POST /api/login<br/>{username, password}
-    S->>S: 查用户(UserMapper)<br/>BCrypt.matches 验证密码
+    B->>S: POST /api/login {username, password}
+    S->>S: 查用户(UserMapper) BCrypt.matches 验证密码
     S-->>B: 200 {token, username, userId}
-    Note over B: 存 localStorage<br/>跳转 chat.html
+    Note over B: 存 localStorage 跳转 chat.html
 ```
 
 ### WebSocket 鉴权阶段
@@ -82,11 +82,11 @@ sequenceDiagram
     participant I as JwtHandshakeInterceptor
     participant H as ChatHandler
 
-    B->>I: WS 握手<br/>ws://.../chat?token=xxx
-    I->>I: 解析 token<br/>验签 + 校验过期
+    B->>I: WS 握手 ws://.../chat?token=xxx
+    I->>I: 解析 token 验签 + 校验过期
     
     alt token 有效
-        I->>H: 通过握手<br/>身份存入 session.attributes
+        I->>H: 通过握手,身份存入 session.attributes
         H->>B: 推送历史消息 + 广播加入提示
     else token 无效
         I-->>B: 401 拒绝握手
