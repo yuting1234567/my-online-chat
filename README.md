@@ -143,7 +143,7 @@ CREATE TABLE users (
 CREATE TABLE messages (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL,
-    content TEXT NOT NULL,
+    content VARCHAR(1000) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -187,9 +187,15 @@ mysql_secure_installation   # 设置 root 密码
 
 **2. 创建数据库与表**
 
-执行 [数据库设计](#数据库设计) 中的 SQL 语句:先 `CREATE DATABASE`,再两个 `CREATE TABLE`。
+执行:
+\`\`\`bash
+mysql -u root -p -e "CREATE DATABASE chat_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p chat_db < src/main/resources/schema.sql
+\`\`\`
 
-可以直接在 IDEA 自带的 Database 工具里执行
+或者用 IDEA 的 Database 工具直接执行 `src/main/resources/schema.sql`。
+
+详细的表结构和设计决策见上文 [数据库设计](#数据库设计) 段。
 
 **3. 配置**
 
