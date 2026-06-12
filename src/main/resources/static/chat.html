@@ -89,6 +89,16 @@
             padding: 4px;
         }
 
+        .message.error {
+            display: block;
+            background: transparent;
+            box-shadow: none;
+            color: #e54848;
+            font-size: 12px;
+            text-align: center;
+            padding: 4px;
+        }
+
         /* 底部:输入区 */
         .chat-input {
             display: flex;
@@ -141,7 +151,7 @@
 
         <!-- 底部:输入区 -->
         <div class="chat-input">
-            <input type="text" id="messageInput" placeholder="输入消息...">
+            <input type="text" id="messageInput" placeholder="输入消息..." maxlength="1000">
             <button id="sendBtn">发送</button>
         </div>
     </div>
@@ -158,14 +168,17 @@
         const token = localStorage.getItem('token');
         const username = localStorage.getItem('username');
 
-        if (!token){
-            window.location.href = 'login.html';
-        }
-
         //全局状态
         let ws;
 
-        connectWebSocket();
+        //检验有 token，且 token 未过期。无效就跳登录，并且不要再连 WebSocket
+        if (!token || isTokenExpired(token)){
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
+            window.location.href = 'login.html';
+        } else {
+            connectWebSocket();
+        }
 
         //退出登录
         logoutBtn.addEventListener('click', logout);
@@ -213,6 +226,9 @@
                     case 'system':
                         showSystemMessage(msg.content);
                         break;
+                    case 'error':
+                        showErrorMessage(msg.content);
+                        break;
                     case 'history':
                         showHistory(msg.messages);
                         break;
@@ -251,6 +267,15 @@
         function showSystemMessage(content){
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message system';
+            msgDiv.textContent = content;
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        //显示一条错误提示(只有当事人能看到)
+        function showErrorMessage(content){
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message error';
             msgDiv.textContent = content;
             messagesDiv.appendChild(msgDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -313,6 +338,24 @@
         function HistoryTime(createdAt) {
             if(!createdAt) return '';
             return createdAt.replace('T', ' ');
+        }
+
+        function isTokenExpired(token){
+            try{
+                const part = token.split('.')[1];
+                // Base64URL → 标准 Base64
+                let base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+                // 补齐末尾 padding
+                while (base64.length % 4 !== 0) {
+                    base64 += '=';
+                }
+                const payload = JSON.parse(atob(base64));
+                const now = Math.floor(Date.now() / 1000);
+                return payload.exp < now;
+            }catch (e){
+                console.error('isTokenExpired 解析失败,token 视为过期', e);
+                return true;
+            }
         }
 
     </script>

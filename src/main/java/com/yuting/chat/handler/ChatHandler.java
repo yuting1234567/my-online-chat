@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuting.chat.entity.Message;
 import com.yuting.chat.mapper.MessageMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -15,8 +16,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
+@Slf4j
 @Component
 public class ChatHandler extends TextWebSocketHandler {
+
+    // 单条消息最大长度，超过则拒绝。防止超大 payload 撑爆 DB 和广播带宽
+    private static final int MAX_CONTENT_LENGTH = 1000;
 
     // 所有在线的 session，线程安全，适合读多写少的广播场景
     private final Set<WebSocketSession> sessions     = new CopyOnWriteArraySet<>();
@@ -35,7 +40,7 @@ public class ChatHandler extends TextWebSocketHandler {
         sessions.add(session);
 
         String username = (String) session.getAttributes().get("username");
-        System.out.println("新连接进来：" + session.getId() + ", 用户：" + username + " , 当前在线：" + sessions.size());
+        log.info("新连接进来：{}, 用户：{}, 当前在线：{}", session.getId(), username, sessions.size());
 
         sendHistory(session);
 
@@ -56,14 +61,14 @@ public class ChatHandler extends TextWebSocketHandler {
         try {
             msg = objectMapper.readValue(payload, new TypeReference<Map<String, Object>>() {});
         }catch (Exception e){
-            System.out.println("消息解析失败，忽略：" + payload);
+            log.warn("消息解析失败，忽略 payload={}", payload, e);
             return;
         }
 
         //根据 type,处理不同逻辑
         String type = (String) msg.get("type");
         if(type == null) {
-            System.out.println("消息缺少 type 字段，忽略：" + payload);
+            log.warn("消息缺少 type 字段，忽略：{}", payload);
             return;
         }
 
@@ -72,7 +77,7 @@ public class ChatHandler extends TextWebSocketHandler {
                 handleChat(session, msg);
                 break;
             default:
-                System.out.println("未知消息类型：" + type);
+                log.warn("未知消息类型：{}, sessionId={}", type, session.getId());
         }
     }
 
@@ -81,8 +86,6 @@ public class ChatHandler extends TextWebSocketHandler {
         sessions.remove(session);
 
         String username = (String) session.getAttributes().get("username");
-        System.out.println("连接断开：" + session.getId() +  " (" + username + "), 当前在线：" + sessions.size());
-
         if(username != null) {
             broadcastSystemMessage(username + " 离开了聊天室");
         }
@@ -97,16 +100,24 @@ public class ChatHandler extends TextWebSocketHandler {
     private void handleChat(WebSocketSession session, Map<String, Object> msg) {
         String username = (String) session.getAttributes().get("username");
         if(username == null) {
-            System.out.println("用户未加入(无 username)，拒绝发送");
+            log.error("严重异常:handleChat 中 username 为 null,可能拦截器配置错误, sessionId={}", session.getId());
             return;
         }
 
         String content = (String) msg.get("content");
         if(content == null || content.isBlank()) {
+            log.debug("空消息，忽略，username={}", username);
             return;
         }
 
-        System.out.println("收到 [" + username + "]: " + content);
+        //长度校验：超长直接拒绝，并单独告知发送者，不入库也不广播
+        if(content.length() > MAX_CONTENT_LENGTH) {
+            log.warn("消息超长被拒绝，username={}, length={}", username, content.length());
+            sendError(session, "消息过长，最多 " + MAX_CONTENT_LENGTH + " 字");
+            return;
+        }
+
+        log.debug("收到【{}】: {}", username, content);
 
         //先存到数据库（持久化）
         Message message = new Message();
@@ -116,8 +127,7 @@ public class ChatHandler extends TextWebSocketHandler {
             messageMapper.insertMessage(message);
             //插入后，message.getId()已经被 MyBatis 自动回填
         }catch (Exception e){
-            System.out.println("消息存盘失败：" + e);
-            e.printStackTrace();
+            log.error("消息存盘失败", e);
             //注意：即使存盘失败，我们还是继续广播——保证用户体验，日志记录失败
         }
 
@@ -142,6 +152,20 @@ public class ChatHandler extends TextWebSocketHandler {
     }
 
     /**
+     * 给单个 session 发一条错误提示（只发给当事人，不广播）。
+     */
+    private void sendError(WebSocketSession session, String content){
+        Map<String, Object> errMsg = new HashMap<>();
+        errMsg.put("type", "error");
+        errMsg.put("content", content);
+        try {
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(errMsg)));
+        } catch (Exception e) {
+            log.warn("发送错误提示失败，sessionId={}", session.getId(), e);
+        }
+    }
+
+    /**
      * 广播一条系统消息
      */
     private void broadcastSystemMessage(String content){
@@ -160,7 +184,7 @@ public class ChatHandler extends TextWebSocketHandler {
         try {
             json = objectMapper.writeValueAsString(message);
         }catch (Exception e){
-            System.out.println("消息序列化失败：" + e.getMessage());
+            log.error("消息序列化失败", e);
             return;
         }
 
@@ -169,7 +193,7 @@ public class ChatHandler extends TextWebSocketHandler {
             try {
                 s.sendMessage(new TextMessage(json));
             }catch (Exception e){
-                System.out.println("发送给 " + s.getId() + " 失败：" + e.getMessage());
+                log.warn("发送给：{} 的消息失败", s.getId(), e);
             }
         }
     }
@@ -190,8 +214,7 @@ public class ChatHandler extends TextWebSocketHandler {
             String json = objectMapper.writeValueAsString(historyMSg);
             session.sendMessage(new TextMessage(json));
         } catch (Exception e) {
-            System.out.println("推送历史消息失败：" + e);
-            e.printStackTrace();
+            log.error("推送历史消息失败", e);
         }
     }
 }

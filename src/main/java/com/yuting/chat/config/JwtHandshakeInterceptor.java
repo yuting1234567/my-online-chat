@@ -2,6 +2,7 @@ package com.yuting.chat.config;
 
 import com.yuting.chat.service.JwtService;
 import io.jsonwebtoken.Claims;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -13,6 +14,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 
+@Slf4j
 @Component
 public class JwtHandshakeInterceptor implements HandshakeInterceptor {
     private final JwtService jwtService;
@@ -31,7 +33,7 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
                                                    .getFirst("token");
 
         if (token == null || token.isBlank()) {
-            System.out.println("websocket 握手拒绝：缺少 token");
+            log.warn("websocket 握手拒绝：缺少 token");
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
@@ -44,11 +46,11 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
             attributes.put("username", username);
             attributes.put("userId", userId);
 
-            System.out.println("WebSocket 握手通过：" + username + "(userId=" + userId +  ")");
+            log.info("WebSocket握手通过：{} (userId={})",username, userId);
             return true;
         }catch (Exception e){
             //过期、签名不对、格式错误
-            System.out.println("WebSocket 握手拒绝：token 校验失败 - " + e.getMessage());
+            log.warn("WebSocket 握手拒绝：token 校验失败 - {}", e.getMessage());
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
