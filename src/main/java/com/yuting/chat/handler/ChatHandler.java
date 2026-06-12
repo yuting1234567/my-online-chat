@@ -7,13 +7,16 @@ import com.yuting.chat.mapper.MessageMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.socket.handler.WebSocketSessionDecorator;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 @Slf4j
@@ -25,6 +28,9 @@ public class ChatHandler extends TextWebSocketHandler {
 
     // 所有在线的 session，线程安全，适合读多写少的广播场景
     private final Set<WebSocketSession> sessions     = new CopyOnWriteArraySet<>();
+
+    private final Map<String, WebSocketSession> sessionMap = new ConcurrentHashMap<>();
+
     //JSON 序列化_Jackson
     private final ObjectMapper objectMapper;
     //MyBatis Mapper,Spring 自动注入
@@ -37,12 +43,19 @@ public class ChatHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        sessions.add(session);
+        WebSocketSessionDecorator concurrentSession = new ConcurrentWebSocketSessionDecorator(
+                session,
+                5000,
+                64 * 1024
+        );
+
+        sessionMap.put(session.getId(), concurrentSession);
+        sessions.add(concurrentSession);
 
         String username = (String) session.getAttributes().get("username");
         log.info("新连接进来：{}, 用户：{}, 当前在线：{}", session.getId(), username, sessions.size());
 
-        sendHistory(session);
+        sendHistory(concurrentSession);
 
         broadcastSystemMessage(username + " 加入了聊天室");
         
@@ -72,9 +85,15 @@ public class ChatHandler extends TextWebSocketHandler {
             return;
         }
 
+        WebSocketSession concurrent = sessionMap.get(session.getId());
+        if (concurrent == null) {
+            log.error("严重异常：sessionMap 中找不到装饰器, sessionId={}", session.getId());
+            return;
+        }
+
         switch (type) {
             case "chat" :
-                handleChat(session, msg);
+                handleChat(concurrent, msg);
                 break;
             default:
                 log.warn("未知消息类型：{}, sessionId={}", type, session.getId());
@@ -83,9 +102,14 @@ public class ChatHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
-        sessions.remove(session);
+        WebSocketSession concurrent = sessionMap.remove(session.getId());
+        if (concurrent != null) {
+            sessions.remove(concurrent);
+        }
 
         String username = (String) session.getAttributes().get("username");
+        log.info("连接断开：{}, ({}), 当前在线：{}", session.getId(), username, sessions.size());
+
         if(username != null) {
             broadcastSystemMessage(username + " 离开了聊天室");
         }
