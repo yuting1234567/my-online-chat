@@ -167,6 +167,78 @@ CREATE TABLE messages (
 - **构造器注入**:Spring 推荐的 DI 方式,字段 final、依赖显式可见、易于单元测试
 - **敏感配置环境变量化**:数据库密码通过 `${DB_PASSWORD}` 占位符传入,不写进配置文件
 
+## 测试
+
+本项目建立了完整的自动化测试体系,当前测试覆盖率约 60-70%(核心业务路径 100% 覆盖),累计 20 个测试用例。
+
+### 测试策略
+
+采用"测试金字塔"分层:
+
+- **单元测试(12 个)**:测试单个类的核心逻辑,依赖用 Mockito mock 掉,毫秒级执行
+- **集成测试(8 个)**:测试 Controller 的 HTTP 层,用 MockMvc 模拟真实 HTTP 请求,验证路由、参数绑定、状态码、JSON 序列化等完整链路
+
+目前不做端到端(E2E)测试。
+
+### 技术栈
+
+| 工具 | 用途 |
+|---|---|
+| JUnit 5 | 测试框架,`@Test`、断言、`@BeforeEach` 生命周期 |
+| Mockito | Mock 依赖对象,`when().thenReturn()`、`doAnswer()`(void 方法) |
+| Spring MVC Test | `MockMvcBuilders.standaloneSetup` 构建 MockMvc,验证 HTTP 层 |
+| JsonPath | 从 JSON 响应中提取字段并断言 |
+
+### 覆盖清单
+
+**JwtService(4 个单元测试)**:
+- 签发 token 返回合法 JWT 字符串(header.payload.signature 三段式)
+- 签发-解析往返:验证 userId 和 username 正确回填
+- 过期 token 解析抛 `ExpiredJwtException`
+- 篡改 token 解析抛 `SignatureException`
+
+**LoginController(4 单元 + 4 集成)**:
+- 用户不存在 → 401
+- 密码错误 → 401
+- 登录成功 → 200 + 返回 token / username / userId
+- 用户名为空 → 400
+
+**RegisterController(4 单元 + 4 集成)**:
+- 用户名为空 → 400
+- 密码太短(< 6 位)→ 400
+- 用户名已存在 → 400
+- 注册成功 → 200 + 返回 id / username
+
+### 设计原则
+
+**1. 只 mock 真正会被调用的依赖**
+
+参数校验类测试不预设 mock 行为,避免 `UnnecessaryStubbingException`。
+
+**2. 精确参数匹配作为隐式验证**
+
+`when(jwtService.generateToken(1L, "小明"))` 而非 `anyLong()` + `anyString()`——如果 Controller 错误使用了其他字段调用 mock,mock 不匹配返回 null,测试自动失败。
+
+**3. 测试不绑定实现细节**
+
+- 断言 token 用 `.isNotEmpty()` 而非 `.value("fake-token-for-test")`,允许未来 Controller 加前缀等改动
+- 只断言异常类型,不断言 message 文案(避免第三方库升级导致测试崩溃)
+
+**4. 集成测试用最小启动**
+
+`MockMvcBuilders.standaloneSetup(controller).build()` 而非 `@SpringBootTest`:
+- 不启动 Spring 容器,不初始化数据库、MyBatis、WebSocket
+- 单个测试启动 < 500ms(对比 `@SpringBootTest` 5+s)
+- 手动 new Controller + mock 依赖,配置零依赖
+
+### 运行测试
+
+```bash
+mvn test
+```
+
+在 IntelliJ IDEA 中,可以右键 `src/test/java` 目录选择 "Run 'All Tests'"。
+
 ## 本地运行
 
 ### 环境要求

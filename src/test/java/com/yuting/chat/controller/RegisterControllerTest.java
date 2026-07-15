@@ -50,7 +50,12 @@ class RegisterControllerTest {
         ResponseEntity<?> register = registerController.register(registerRequest);
 
         assertEquals(400, register.getStatusCode().value());
-        assertTrue(register.getBody().toString().contains("密码长度不足"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) register.getBody();
+
+        assertNotNull(body);
+        assertTrue(body.get("error").toString().contains("密码长度"));
         verify(userMapper, never()).insert(any());
     }
 
