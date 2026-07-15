@@ -60,6 +60,11 @@ public class RegisterController {
         user.setPasswordHash(passwordHash);
         userMapper.insert(user);
 
+        if (user.getId() == null) {
+            log.error("严重异常:userMapper.insert 后 id 仍为 null,可能数据库配置问题");
+            return ResponseEntity.status(500).body(Map.of("error", "注册失败,请稍后重试"));
+        }
+
         log.info("用户注册成功：username={}, userId={}", user.getUsername(), user.getId());
 
         //返回成功响应

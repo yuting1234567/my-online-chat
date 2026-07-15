@@ -153,9 +153,9 @@ CREATE TABLE messages (
 - **users.username UNIQUE**:数据库层兜底并发重名,配合 Java 层的"先查再插"检查
 - **users.password_hash VARCHAR(60)**:BCrypt 哈希永远 60 字符,精确匹配
 - **password_hash 命名**:字段名即文档,明示这里存的是哈希不是明文
-- **messages.username 不引用 users.id**:故意没用外键——历史消息要保留发送人名,即使用户被删
+[- **messages.username 不引用 users.id**:故意没用外键——历史消息要保留发送人名,即使用户被删]()
 - `BIGINT` 而非 `INT`:防御性设计,消息累计量可能很大
-- `TEXT` 而非 `VARCHAR`:消息内容长度不可预测,TEXT 更稳
+[- `TEXT` 而非 `VARCHAR`:消息内容长度不可预测,TEXT 更稳]()
 - `DEFAULT CURRENT_TIMESTAMP`:数据库自动填时间,业务代码无需关心
 
 ## 设计亮点
@@ -247,7 +247,7 @@ mvn spring-boot:run
 - [ ] 多房间支持
 - [ ] 消息删除 / 撤回功能
 - [ ] 私聊功能
-- [ ] 替换 System.out 为 SLF4J 日志框架
+- [x] 替换 System.out 为 SLF4J 日志框架
 - [ ] 容器化部署(Docker)+ 云端部署(Render / Railway)
 
 ## 关键技术决策与踩坑

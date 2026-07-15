@@ -10,10 +10,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RegisterControllerTest {
@@ -38,7 +42,6 @@ class RegisterControllerTest {
         UserMapper userMapper = mock(UserMapper.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
 
-        //密码只有 3 位
         RegisterRequest registerRequest = new RegisterRequest();
         registerRequest.setUsername("小明");
         registerRequest.setPassword("123");
@@ -47,6 +50,8 @@ class RegisterControllerTest {
         ResponseEntity<?> register = registerController.register(registerRequest);
 
         assertEquals(400, register.getStatusCode().value());
+        assertTrue(register.getBody().toString().contains("密码长度不足"));
+        verify(userMapper, never()).insert(any());
     }
 
     @Test
@@ -75,7 +80,6 @@ class RegisterControllerTest {
         UserMapper userMapper = mock(UserMapper.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
 
-        //预设：模拟 MyBatis 回填 id
         when(userMapper.findByUsername(anyString())).thenReturn(null);
         doAnswer(invocation -> {
             User userArg = invocation.getArgument(0);
@@ -95,8 +99,9 @@ class RegisterControllerTest {
         assertEquals(200, register.getStatusCode().value());
 
         @SuppressWarnings("unchecked")
-        Map<String, Object> map = (Map<String, Object>) register.getBody();
-        assertEquals(1L, map.get("id"));
-        assertEquals("小明", map.get("username"));
+        Map<String, Object> body = (Map<String, Object>) register.getBody();
+        assertNotNull(body);
+        assertEquals(1L, body.get("id"));
+        assertEquals("小明", body.get("username"));
     }
 }
