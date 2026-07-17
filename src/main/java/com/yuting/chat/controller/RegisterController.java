@@ -3,6 +3,7 @@ package com.yuting.chat.controller;
 import com.yuting.chat.dto.RegisterRequest;
 import com.yuting.chat.entity.User;
 import com.yuting.chat.mapper.UserMapper;
+import com.yuting.chat.service.UserRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,10 +21,12 @@ public class RegisterController {
 
     private final UserMapper      userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final UserRegistry userRegistry;
 
-    public RegisterController(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+    public RegisterController(UserMapper userMapper, PasswordEncoder passwordEncoder, UserRegistry userRegistry) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.userRegistry = userRegistry;
     }
 
     @PostMapping("/register")
@@ -58,7 +61,8 @@ public class RegisterController {
         User user = new User();
         user.setUsername(username);
         user.setPasswordHash(passwordHash);
-        userMapper.insert(user);
+        userMapper.insert(user);  //DB 插入
+        userRegistry.register(user.getUsername());  //缓存更新
 
         if (user.getId() == null) {
             log.error("严重异常:userMapper.insert 后 id 仍为 null,可能数据库配置问题");

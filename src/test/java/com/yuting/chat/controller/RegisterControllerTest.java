@@ -3,6 +3,7 @@ package com.yuting.chat.controller;
 import com.yuting.chat.dto.RegisterRequest;
 import com.yuting.chat.entity.User;
 import com.yuting.chat.mapper.UserMapper;
+import com.yuting.chat.service.UserRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,12 +27,13 @@ class RegisterControllerTest {
     void register_用户名为空应该返回400() {
         UserMapper userMapper = mock(UserMapper.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+        UserRegistry userRegistry = mock(UserRegistry.class);
 
         //只有密码
         RegisterRequest registerRequest = new RegisterRequest();
         registerRequest.setPassword("123456");
 
-        RegisterController registerController = new RegisterController(userMapper, passwordEncoder);
+        RegisterController registerController = new RegisterController(userMapper, passwordEncoder, userRegistry);
         ResponseEntity<?> register = registerController.register(registerRequest);
 
         assertEquals(400, register.getStatusCode().value());
@@ -41,12 +43,13 @@ class RegisterControllerTest {
     void register_密码太短应该返回400() {
         UserMapper userMapper = mock(UserMapper.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+        UserRegistry userRegistry = mock(UserRegistry.class);
 
         RegisterRequest registerRequest = new RegisterRequest();
         registerRequest.setUsername("小明");
         registerRequest.setPassword("123");
 
-        RegisterController registerController = new RegisterController(userMapper, passwordEncoder);
+        RegisterController registerController = new RegisterController(userMapper, passwordEncoder, userRegistry);
         ResponseEntity<?> register = registerController.register(registerRequest);
 
         assertEquals(400, register.getStatusCode().value());
@@ -63,6 +66,7 @@ class RegisterControllerTest {
     void register_用户名已经存在应该返回400() {
         UserMapper userMapper = mock(UserMapper.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+        UserRegistry userRegistry = mock(UserRegistry.class);
 
         User user = new User();
         user.setUsername("小明");
@@ -74,7 +78,7 @@ class RegisterControllerTest {
         registerRequest.setUsername("小明");
         registerRequest.setPassword("123456");
 
-        RegisterController registerController = new RegisterController(userMapper, passwordEncoder);
+        RegisterController registerController = new RegisterController(userMapper, passwordEncoder, userRegistry);
         ResponseEntity<?> register = registerController.register(registerRequest);
 
         assertEquals(400, register.getStatusCode().value());
@@ -84,6 +88,7 @@ class RegisterControllerTest {
     void register_注册成功应该返回200() {
         UserMapper userMapper = mock(UserMapper.class);
         PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
+        UserRegistry userRegistry = mock(UserRegistry.class);
 
         when(userMapper.findByUsername(anyString())).thenReturn(null);
         doAnswer(invocation -> {
@@ -98,7 +103,7 @@ class RegisterControllerTest {
         registerRequest.setUsername("小明");
         registerRequest.setPassword("123456");
 
-        RegisterController registerController = new RegisterController(userMapper, passwordEncoder);
+        RegisterController registerController = new RegisterController(userMapper, passwordEncoder, userRegistry);
         ResponseEntity<?> register = registerController.register(registerRequest);
 
         assertEquals(200, register.getStatusCode().value());
@@ -108,5 +113,7 @@ class RegisterControllerTest {
         assertNotNull(body);
         assertEquals(1L, body.get("id"));
         assertEquals("小明", body.get("username"));
+
+        verify(userRegistry).register("小明");
     }
 }

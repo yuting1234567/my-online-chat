@@ -2,6 +2,7 @@ package com.yuting.chat.controller;
 
 import com.yuting.chat.entity.User;
 import com.yuting.chat.mapper.UserMapper;
+import com.yuting.chat.service.UserRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -22,13 +23,15 @@ class RegisterControllerIntegrationTest {
     private MockMvc    mockMvc;
     private UserMapper      userMapper;
     private PasswordEncoder passwordEncoder;
+    private UserRegistry    userRegistry;
 
     @BeforeEach
     void setUp(){
         userMapper = mock(UserMapper.class);
         passwordEncoder = mock(PasswordEncoder.class);
+        userRegistry = mock(UserRegistry.class);
 
-        RegisterController registerController = new RegisterController(userMapper, passwordEncoder);
+        RegisterController registerController = new RegisterController(userMapper, passwordEncoder, userRegistry);
 
         mockMvc = MockMvcBuilders.standaloneSetup(registerController).build();
     }
