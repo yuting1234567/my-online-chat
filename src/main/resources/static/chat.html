@@ -185,7 +185,20 @@
         function logout(){
             localStorage.removeItem('token');
             localStorage.removeItem('username');
-            window.location.href = 'login.html';
+
+            //连接还开着：等它真正关闭后再跳转，否则同步跳转会抢在 close 帧发出前卸载页面
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                //兜底：万一 onclose 迟迟不触发，最多等 1 秒也强制跳转
+                const goLogin = () => { window.location.href = 'login.html'; };
+                const timer = setTimeout(goLogin, 1000);
+                ws.onclose = () => {
+                    clearTimeout(timer);
+                    goLogin();
+                };
+                ws.close();
+            } else {
+                window.location.href = 'login.html';
+            }
         }
 
         // 建立 WebSocket 连接
