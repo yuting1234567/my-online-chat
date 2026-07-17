@@ -225,7 +225,7 @@ public class ChatHandler extends TextWebSocketHandler {
     private void sendHistory(WebSocketSession session){
         try{
             //查最近 50条（数据库按 id DESC 倒序返回）
-            List<Message> recent = messageMapper.findRecent(50);
+            List<Message> recent = messageMapper.findRecentGroup(50);
 
             //反转（老的消息在前，新的在后），方便前端按时间顺序展示
             Collections.reverse(recent);

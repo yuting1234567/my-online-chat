@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 public class Message {
     private Long          id;
     private String        username;
+    private String        toUsername;
     private String        content;
+    private Boolean       delivered;
     private LocalDateTime createdAt;
 }

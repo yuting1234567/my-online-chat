@@ -3,6 +3,7 @@ package com.yuting.chat.mapper;
 import com.yuting.chat.entity.User;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 public interface UserMapper {
@@ -19,6 +20,6 @@ public interface UserMapper {
      * 登录时用这个查出哈希,再和用户传入的密码比对。
      */
     @Select("SELECT id, username, password_hash, created_at FROM users WHERE username = #{username}")
-    User findByUsername(String username);
+    User findByUsername(@Param("username") String username);
 
 }
