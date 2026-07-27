@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuting.chat.entity.Message;
 import com.yuting.chat.mapper.MessageMapper;
+import com.yuting.chat.service.UserRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
@@ -28,21 +29,32 @@ public class ChatHandler extends TextWebSocketHandler {
 
     // 所有在线的 session，线程安全，适合读多写少的广播场景
     private final Set<WebSocketSession> sessions     = new CopyOnWriteArraySet<>();
-
     private final Map<String, WebSocketSession> sessionMap = new ConcurrentHashMap<>();
+    private final Map<String, WebSocketSession> userSessionMap = new ConcurrentHashMap<>();
 
     //JSON 序列化_Jackson
     private final ObjectMapper objectMapper;
     //MyBatis Mapper,Spring 自动注入
     private final MessageMapper messageMapper;
+
+    private final UserRegistry userRegistry;
+
     //构造器注入：Spring 创建 ChatHandler 时会传入 MessageMapper、objectMapper
-    public ChatHandler(MessageMapper messageMapper, ObjectMapper objectMapper) {
+    public ChatHandler(MessageMapper messageMapper, ObjectMapper objectMapper,  UserRegistry userRegistry) {
         this.messageMapper = messageMapper;
         this.objectMapper = objectMapper;
+        this.userRegistry = userRegistry;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        String username = (String) session.getAttributes().get("username");
+        if (username == null) {
+            log.error("严重异常：username 为 null，可能拦截器未生效，sessionId={}",session.getId());
+            session.close();
+            return;
+        }
+
         WebSocketSessionDecorator concurrentSession = new ConcurrentWebSocketSessionDecorator(
                 session,
                 5000,
@@ -51,8 +63,8 @@ public class ChatHandler extends TextWebSocketHandler {
 
         sessionMap.put(session.getId(), concurrentSession);
         sessions.add(concurrentSession);
+        userSessionMap.put(username, concurrentSession);
 
-        String username = (String) session.getAttributes().get("username");
         log.info("新连接进来：{}, 用户：{}, 当前在线：{}", session.getId(), username, sessions.size());
 
         sendHistory(concurrentSession);
@@ -95,6 +107,9 @@ public class ChatHandler extends TextWebSocketHandler {
             case "chat" :
                 handleChat(concurrent, msg);
                 break;
+            case "private" :
+                handlePrivate(concurrent, msg);
+                break;
             default:
                 log.warn("未知消息类型：{}, sessionId={}", type, session.getId());
         }
@@ -111,6 +126,7 @@ public class ChatHandler extends TextWebSocketHandler {
         log.info("连接断开：{}, ({}), 当前在线：{}", session.getId(), username, sessions.size());
 
         if(username != null) {
+            userSessionMap.remove(username);
             broadcastSystemMessage(username + " 离开了聊天室");
         }
 
@@ -162,6 +178,78 @@ public class ChatHandler extends TextWebSocketHandler {
         chatMsg.put("content", content);
 
         broadcast(chatMsg);
+    }
+
+    private void handlePrivate(WebSocketSession session, Map<String, Object> msg) {
+        //from 从 session attributes 取(永远不信任客户端)
+        String from = (String) session.getAttributes().get("username");
+        if(from == null) {
+            log.error("严重异常：handlePrivate 中 from 为 null，sessionId={}", session.getId());
+            return;
+        }
+
+        String to = (String) msg.get("to");
+        if(to == null || to.isBlank()) {
+            log.warn("私聊缺少 to 字段，忽略，from={}", from);
+            return;
+        }
+
+        //长度校验：超长直接拒绝，并单独告知发送者，不入库也不广播
+        String content = (String) msg.get("content");
+        if(content == null || content.isBlank()) {
+            log.debug("空私聊消息，忽略，from={}", from);
+            return;
+        }
+        if(content.length() > MAX_CONTENT_LENGTH) {
+            log.warn("私聊超长,from={},length={}", from, content.length());
+            sendError(session, "消息过长，最多 " + MAX_CONTENT_LENGTH + " 字");
+            return;
+        }
+
+        //接收者存在性校验（用 UserRegistry, 不查 DB）
+        if(!userRegistry.exists(to)) {
+            log.warn("私聊接收者不存在，from={}, to={}", from, to);
+            sendError(session, "该用户不存在：" + to);
+            return;
+        }
+
+        //存到数据库（持久化）
+        Message message = new Message();
+        message.setUsername(from);
+        message.setToUsername(to);
+        message.setContent(content);
+        try{
+            messageMapper.insertMessage(message);
+        }catch (Exception e){
+            log.error("私聊消息存盘失败，from={}, to={}", from, to, e);
+            sendError(session, "消息发送失败，请稍后重试");
+            return;
+        }
+
+        if(from.equals(to)) {
+            log.debug("私聊（自发自收），只持久化，from={}", from);
+            messageMapper.markDelivered(message.getId());
+            return;
+        }
+
+        WebSocketSession recipientSession = userSessionMap.get(to);
+        if(recipientSession == null) {
+            log.debug("接收者离线，消息已存 DB 等重连补推，from={}, to={}", from, to);
+            return;
+        }
+
+        //推送消息
+        Map<String, Object> privateMsg = new HashMap<>();
+        privateMsg.put("type", "private");
+        privateMsg.put("id", message.getId());
+        privateMsg.put("from", from);
+        privateMsg.put("content", content);
+        try{
+            recipientSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(privateMsg)));
+            messageMapper.markDelivered(message.getId());
+        }catch (Exception e){
+            log.error("私聊推送失败，from={}, to={}", from, to, e);
+        }
     }
 
     /**
