@@ -55,6 +55,9 @@ public class ChatHandler extends TextWebSocketHandler {
             return;
         }
 
+        //检查是否已有旧连接
+        WebSocketSession oldSession = userSessionMap.get(username);
+
         WebSocketSessionDecorator concurrentSession = new ConcurrentWebSocketSessionDecorator(
                 session,
                 5000,
@@ -64,6 +67,11 @@ public class ChatHandler extends TextWebSocketHandler {
         sessionMap.put(session.getId(), concurrentSession);
         sessions.add(concurrentSession);
         userSessionMap.put(username, concurrentSession);
+
+        //踢老连接
+        if(oldSession != null) {
+            kickOldSession(oldSession, username);
+        }
 
         log.info("新连接进来：{}, 用户：{}, 当前在线：{}", session.getId(), username, sessions.size());
 
@@ -128,8 +136,13 @@ public class ChatHandler extends TextWebSocketHandler {
         log.info("连接断开：{}, ({}), 当前在线：{}", session.getId(), username, sessions.size());
 
         if(username != null) {
-            userSessionMap.remove(username);
-            broadcastSystemMessage(username + " 离开了聊天室");
+            boolean wasRegistered = userSessionMap.remove(username, concurrent);
+            if(wasRegistered) {
+                broadcastSystemMessage(username + " 离开了聊天室");
+            }else {
+                log.debug("旧连接 close 事件，username={} 仍在线", username);
+            }
+
         }
 
         //广播最新在线人数给所有人
@@ -353,5 +366,24 @@ public class ChatHandler extends TextWebSocketHandler {
                 log.error("补推私聊失败，id={}, from={}, to={}", msg.getId(), msg.getUsername(), toUsername, e);
             }
         }
+    }
+
+    private void kickOldSession(WebSocketSession oldSession, String username){
+        Map<String, Object> kickMsg = new HashMap<>();
+        kickMsg.put("type", "kicked");
+        kickMsg.put("reason", "您的账号已在其他设备登录");
+        try {
+            oldSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(kickMsg)));
+        }catch (Exception e){
+            log.warn("向旧连接发送 kicked 通知失败，username={}",  username, e);
+        }
+
+        //主动 close 老连接
+        try{
+            oldSession.close(new CloseStatus(4001, "concurrent login"));
+        }catch (Exception e){
+            log.warn("关闭旧连接失败，username={}", username, e);
+        }
+        log.info("踢掉旧连接：username={}, oldSessionId={}", username, oldSession.getId());
     }
 }
