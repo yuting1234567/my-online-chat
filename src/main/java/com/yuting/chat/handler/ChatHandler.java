@@ -82,7 +82,7 @@ public class ChatHandler extends TextWebSocketHandler {
         broadcastSystemMessage(username + " 加入了聊天室");
         
         //广播最新在线人数给所有人
-        broadcastOnlineCount();
+        broadcastOnlineList();
     }
 
     @Override
@@ -146,7 +146,7 @@ public class ChatHandler extends TextWebSocketHandler {
         }
 
         //广播最新在线人数给所有人
-        broadcastOnlineCount();
+        broadcastOnlineList();
     }
 
     /**
@@ -268,13 +268,14 @@ public class ChatHandler extends TextWebSocketHandler {
     }
 
     /**
-     * 广播当前在线人数。
+     * 广播当前在线用户。
      */
-    private void broadcastOnlineCount(){
-        Map<String,Object> onlineMsg = new HashMap<>();
+    private void broadcastOnlineList() {
+        List<String> onlineUsers = userSessionMap.keySet().stream().sorted().toList();
+        Map<String, Object> onlineMsg = new HashMap<>();
         onlineMsg.put("type", "online");
-        onlineMsg.put("count", sessions.size());
-
+        onlineMsg.put("users", onlineUsers);
+        onlineMsg.put("count", onlineUsers.size());
         broadcast(onlineMsg);
     }
 
