@@ -69,6 +69,8 @@ public class ChatHandler extends TextWebSocketHandler {
 
         sendHistory(concurrentSession);
 
+        sendUndeliveredPrivate(concurrentSession, username);
+
         broadcastSystemMessage(username + " 加入了聊天室");
         
         //广播最新在线人数给所有人
@@ -327,6 +329,29 @@ public class ChatHandler extends TextWebSocketHandler {
             session.sendMessage(new TextMessage(json));
         } catch (Exception e) {
             log.error("推送历史消息失败", e);
+        }
+    }
+
+    private void sendUndeliveredPrivate(WebSocketSession session, String toUsername){
+        List<Message> undelivered = messageMapper.findUndeliveredPrivate(toUsername);
+        if(undelivered.isEmpty()){
+            return;
+        }
+        log.info("重连补推私聊消息：username={}, count={}", toUsername, undelivered.size());
+
+        for(Message msg : undelivered){
+            Map<String, Object> privateMsg = new HashMap<>();
+            privateMsg.put("type", "private");
+            privateMsg.put("id", msg.getId());
+            privateMsg.put("from", msg.getUsername());
+            privateMsg.put("content", msg.getContent());
+            privateMsg.put("createdAt", msg.getCreatedAt().toString());
+            try {
+                session.sendMessage(new TextMessage(objectMapper.writeValueAsString(privateMsg)));
+                messageMapper.markDelivered(msg.getId());
+            }catch (Exception e){
+                log.error("补推私聊失败，id={}, from={}, to={}", msg.getId(), msg.getUsername(), toUsername, e);
+            }
         }
     }
 }
