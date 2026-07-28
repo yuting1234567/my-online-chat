@@ -385,7 +385,7 @@ public class ChatHandler extends TextWebSocketHandler {
         }
     }
 
-    private void sendUndeliveredPrivate(WebSocketSession session, String toUsername){
+    void sendUndeliveredPrivate(WebSocketSession session, String toUsername){
         List<Message> undelivered = messageMapper.findUndeliveredPrivate(toUsername);
         if(undelivered.isEmpty()){
             return;
