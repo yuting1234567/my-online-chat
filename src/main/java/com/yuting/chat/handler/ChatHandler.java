@@ -120,6 +120,9 @@ public class ChatHandler extends TextWebSocketHandler {
             case "private" :
                 handlePrivate(concurrent, msg);
                 break;
+            case "load_private_history" :
+                handleLoadPrivateHistory(concurrent, msg);
+                break;
             default:
                 log.warn("未知消息类型：{}, sessionId={}", type, session.getId());
         }
@@ -343,6 +346,42 @@ public class ChatHandler extends TextWebSocketHandler {
             session.sendMessage(new TextMessage(json));
         } catch (Exception e) {
             log.error("推送历史消息失败", e);
+        }
+    }
+
+    private void handleLoadPrivateHistory(WebSocketSession session, Map<String, Object> msg) {
+        String me = (String) session.getAttributes().get("username");
+        if(me == null) {
+            log.error("严重异常：load_private_history 中 me 为 null");
+            return;
+        }
+
+        String withUser = (String) msg.get("with");
+        if(withUser == null || withUser.isBlank()) {
+            log.warn("load_private_history 缺少 with字段，me={}", me);
+            return;
+        }
+
+        //limit防御：默认 50，上限 200
+        Object limitObj = msg.get("limit");
+        int limit = 50;
+        if(limitObj instanceof Number) {
+            limit = ((Number) limitObj).intValue();
+            if (limit <= 0 || limit > 200) limit = 50;
+        }
+
+        List<Message> messages = messageMapper.findPrivateBetween(me, withUser, limit);
+        log.debug("私聊历史查询：me={}, with={}, count={}", me, withUser, messages.size());
+
+        Map<String, Object> historyMsg = new HashMap<>();
+        historyMsg.put("type", "private_history");
+        historyMsg.put("with", withUser);
+        historyMsg.put("messages", messages);
+
+        try {
+            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(historyMsg)));
+        }catch (Exception e){
+            log.error("推送私聊历史失败，me={}, with={}",  me, withUser, e);
         }
     }
 

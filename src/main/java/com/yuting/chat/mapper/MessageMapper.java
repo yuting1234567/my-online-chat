@@ -34,4 +34,10 @@ public interface MessageMapper {
      */
     @Update("UPDATE messages SET delivered = 1 WHERE id = #{id}")
     void markDelivered(@Param("id") Long id);
+
+    /**
+     * 查询两个用户之间的私聊(双向都算),按 id DESC 返回最近 N 条
+     */
+    @Select("SELECT id, username, to_username, content, delivered, created_at FROM messages WHERE (username = #{userA} AND to_username = #{userB}) OR (username = #{userB} AND to_username = #{userA}) ORDER BY id DESC LIMIT #{limit}")
+    List<Message> findPrivateBetween(@Param("userA") String userA, @Param("userB") String userB, @Param("limit") int limit);
 }
