@@ -11,6 +11,11 @@
 - 加入/离开提示
 - 消息持久化到 MySQL,新用户加入时自动展示最近 50 条历史
 - 消息时间显示(历史显示具体时间,新消息显示当前时间)
+- - **私聊功能**:1v1 定向消息,接收者离线时消息入队,重连时自动补推(at-least-once 投递)
+- **单端登录**:同账号新窗口登录会踢掉旧连接(旧端收到 kicked 通知 + 跳回登录页)
+- **在线用户名单** + **侧栏会话列表**(仿 QQ/微信 UI,点在线用户开私聊)
+- **未读消息徽章**:每个私聊会话独立追踪未读数
+- **消息按天分组**:历史消息显示"今天 / 昨天 / YYYY-MM-DD"分隔条
 
 ## 技术栈
 
@@ -39,6 +44,7 @@ src/main/java/com/yuting/chat/
 │   └── LoginController.java     # 登录接口 /api/login,签发 JWT
 ├── service/
 │   └── JwtService.java          # JWT 签发与验签封装
+│   └── UserRegistry.java        # 全局用户名内存缓存(L1),私聊校验避免每次查 DB
 ├── handler/
 │   └── ChatHandler.java         # WebSocket 消息处理(连接生命周期 + 消息分发)
 ├── entity/
@@ -102,6 +108,16 @@ sequenceDiagram
 {"type": "chat", "content": "你好"}
 ```
 
+**发送私聊**:
+```json
+{"type": "private", "to": "小明", "content": "你好"}
+```
+
+**请求加载私聊历史**:
+```json
+{"type": "load_private_history", "with": "小明", "limit": 50}
+```
+
 ### 服务器 → 客户端
 
 **普通聊天消息**:
@@ -114,14 +130,29 @@ sequenceDiagram
 {"type": "system", "content": "小明 加入了聊天室"}
 ```
 
-**在线人数更新**:
+**在线人数 + 用户名单**(更新旧版,原来只有 count):
 ```json
-{"type": "online", "count": 3}
+{"type": "online", "users": ["小明", "小红"], "count": 2}
 ```
 
 **历史消息(仅推给新加入的用户,不广播)**:
 ```json
 {"type": "history", "messages": [{"id": 1, "username": "小明", "content": "你好", "createdAt": "2026-06-04T14:05:29"}]}
+```
+
+**私聊消息(定向推送,包含 id 用于客户端幂等去重)**:
+```json
+{"type": "private", "id": 42, "from": "小明", "content": "你好"}
+```
+
+**私聊历史(按需加载,响应 load_private_history)**:
+```json
+{"type": "private_history", "with": "小明", "messages": [...]}
+```
+
+**被踢通知(同账号在其他端登录时,旧端收到)**:
+```json
+{"type": "kicked", "reason": "您的账号已在其他设备登录"}
 ```
 
 ## 数据库设计
@@ -139,12 +170,14 @@ CREATE TABLE users (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 消息表
+-- 消息表(支持群聊 + 私聊)
 CREATE TABLE messages (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL,
-    content VARCHAR(1000) NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                          id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                          username VARCHAR(50) NOT NULL,               -- 发送者
+                          to_username VARCHAR(50) NULL,                -- 接收者(NULL = 群聊,有值 = 私聊)
+                          content VARCHAR(1000) NOT NULL,
+                          delivered TINYINT(1) NOT NULL DEFAULT 0,     -- 仅私聊使用:0=未推送,1=已推送
+                          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -157,6 +190,9 @@ CREATE TABLE messages (
 - `BIGINT` 而非 `INT`:防御性设计,消息累计量可能很大
 [- `TEXT` 而非 `VARCHAR`:消息内容长度不可预测,TEXT 更稳]()
 - `DEFAULT CURRENT_TIMESTAMP`:数据库自动填时间,业务代码无需关心
+- **`to_username` NULL 编码消息类型**:群聊 = NULL,私聊 = 接收者用户名;一个字段承载两个信息,查询语义清楚
+- **`delivered` 仅对私聊有意义**:群聊消息的默认值 0 不参与投递追踪,查询 `WHERE to_username IS NOT NULL AND delivered = 0` 天然隔离
+- **不存 sessionId 到 DB**:曾考虑存"消息推送到哪个连接",但 session 是运行时对象,重连即失效,该字段无持久化价值
 
 ## 设计亮点
 
@@ -166,16 +202,20 @@ CREATE TABLE messages (
 - **失败隔离**:广播消息循环中,单个 session 发送失败不影响其他用户
 - **构造器注入**:Spring 推荐的 DI 方式,字段 final、依赖显式可见、易于单元测试
 - **敏感配置环境变量化**:数据库密码通过 `${DB_PASSWORD}` 占位符传入,不写进配置文件
+- **三索引数据结构**:同一 WebSocket session 装饰器同时被 `sessions Set`(全广播)、`sessionMap`(sessionId → 装饰器,框架回调时恢复)、`userSessionMap`(username → 装饰器,私聊定向发送)引用。一份数据,三种访问路径
+- **at-least-once + 客户端幂等消费**:私聊崩溃恢复场景下服务端可能重推同一条消息,客户端维护 `seenMessageIds` Set 按 message.id 去重。exactly-once 在分布式系统里理论上做不到,at-least-once + 幂等才是标准解法
+- **CAS 语义解决踢连接竞态**:用 `ConcurrentHashMap.remove(key, value)` 的条件删除,让被踢的老 session 在 `afterConnectionClosed` 里通过"值不匹配"识别出"我不是当前 registered 的",避免误广播"XX 离开了聊天室"
+- **L1 用户名缓存**:`UserRegistry` 在 `@PostConstruct` 从 DB 全量加载用户名,私聊消息校验时 O(1) 内存查询;新用户注册时同步更新(先 DB 后缓存,DB 是 source of truth)
 
 ## 测试
 
-本项目建立了完整的自动化测试体系,当前测试覆盖率约 60-70%(核心业务路径 100% 覆盖),累计 20 个测试用例。
+本项目建立了完整的自动化测试体系,当前测试覆盖率约 60-70%(核心业务路径 100% 覆盖),累计 30 个测试用例。
 
 ### 测试策略
 
 采用"测试金字塔"分层:
 
-- **单元测试(12 个)**:测试单个类的核心逻辑,依赖用 Mockito mock 掉,毫秒级执行
+- **单元测试(22 个)**:测试单个类的核心逻辑,依赖用 Mockito mock 掉,毫秒级执行
 - **集成测试(8 个)**:测试 Controller 的 HTTP 层,用 MockMvc 模拟真实 HTTP 请求,验证路由、参数绑定、状态码、JSON 序列化等完整链路
 
 目前不做端到端(E2E)测试。
@@ -209,6 +249,22 @@ CREATE TABLE messages (
 - 用户名已存在 → 400
 - 注册成功 → 200 + 返回 id / username
 
+**UserRegistry(3 个单元测试)**:
+- init 从 DB 加载全部用户名到缓存
+- exists 对不存在的用户返回 false
+- register 能增量添加用户到缓存
+
+**ChatHandler.handlePrivate(5 个单元测试,覆盖决策的完整校验链路)**:
+- 接收者在线 → insert + push + markDelivered
+- 接收者离线 → insert 但不推不 mark(delivered=0 等重连补推)
+- 接收者不存在 → sendError,不 insert
+- 自发自收 → insert + 立即 markDelivered(不推送)
+- 内容超长 → sendError,不 insert
+
+**ChatHandler.sendUndeliveredPrivate(2 个单元测试)**:
+- 有未送达消息 → 全部推送 + 全部 markDelivered
+- 无未送达消息 → 早 return,不推不 mark
+
 ### 设计原则
 
 **1. 只 mock 真正会被调用的依赖**
@@ -230,6 +286,10 @@ CREATE TABLE messages (
 - 不启动 Spring 容器,不初始化数据库、MyBatis、WebSocket
 - 单个测试启动 < 500ms(对比 `@SpringBootTest` 5+s)
 - 手动 new Controller + mock 依赖,配置零依赖
+
+**5. 反射注入内部状态,跳过 setup 副作用**
+
+ChatHandler 的三个私有 map 用 `ReflectionTestUtils.getField` 拿到引用后直接 put mock session,避免调 `afterConnectionEstablished` 触发 `sendHistory` / `broadcastOnlineList` 等副作用干扰验证。测试代码有权破坏封装,生产代码不行。
 
 ### 运行测试
 
@@ -318,7 +378,7 @@ mvn spring-boot:run
 - [ ] 历史消息分页加载(目前固定加载最近 50 条)
 - [ ] 多房间支持
 - [ ] 消息删除 / 撤回功能
-- [ ] 私聊功能
+- [x] **私聊功能**:1v1 定向消息 + at-least-once 投递语义 + 客户端幂等消费 + 单端登录踢旧连接 + 未读徽章 + 按需加载历史
 - [x] 替换 System.out 为 SLF4J 日志框架
 - [ ] 容器化部署(Docker)+ 云端部署(Render / Railway)
 
